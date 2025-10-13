@@ -109,7 +109,7 @@ def updateDbase():
     connection = sqlite3.connect(DB_PATH)
     dbase = connection.cursor()
 
-    dbase.execute("select distinct file from inspected_files;")
+    dbase.execute("select distinct file from inspected_files")
     inspectedFiles = set(row[0] for row in dbase.fetchall())
 
     for file in os.listdir(LOG_DIR):
@@ -120,6 +120,9 @@ def updateDbase():
             continue
 
         fileLog = inspectLogFile(os.path.join(LOG_DIR, file))
+        if file != 'bmdns.log':
+            dbase.execute(f"insert into inspected_files(file) values ('{file}')")
+
         for entry in fileLog:
             ip = entry.requestantIp
             target = entry.target

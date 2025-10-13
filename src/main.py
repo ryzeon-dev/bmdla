@@ -5,7 +5,7 @@ import sys
 from argparser import ArgParse
 from core import fullTable, queryTopRequestants, queryTopTargets, requestantQueries, updateDbase, runUserQuery
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 
 if __name__ == '__main__':
     args = ArgParse()
