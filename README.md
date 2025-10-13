@@ -6,13 +6,13 @@
 </p>
 
 # BMDNS Log Analyzer
-Log analysis utility for BMDNS
+Log analysis utility for [BMDNS](https://github.com/ryzeon-dev/bmdns)
 
 ## Supported OS
 Right now, BMDLA only supports GNU/Linux systems
 
 ## OS Requirements
-BMDLA requires `python3 python3-venv python3-pip python3-sqlite3` packages to be installed
+BMDLA requires `python3 python3-venv python3-pip python3-sqlite3` packages to be compiled
 
 ## Install
 Run the install script as root, from the main `bmdla` directory
