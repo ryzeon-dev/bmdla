@@ -15,6 +15,7 @@ class ArgParse:
         self.noArgs = True
         self.help = False
         self.version = False
+        self.verbose = False
 
     def parse(self, args):
         if len(args) == 0:
@@ -81,6 +82,9 @@ class ArgParse:
                 elif arg == '--version':
                     self.version = True
 
+                elif arg == '--verbose':
+                    self.verbose = True
+
                 else:
                     print(f'Unexpected argument: `{arg}`')
 
@@ -139,10 +143,15 @@ class ArgParse:
                 elif arg == '-V':
                     self.version = True
 
+                elif arg == '-v':
+                    self.verbose = True
+
                 else:
                     print(f'Unexpected argument: `{arg}`')
+                    sys.exit(1)
 
             else:
                 print(f'Unexpected argument: `{arg}`')
+                sys.exit(1)
 
             index += 1

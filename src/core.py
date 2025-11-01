@@ -2,10 +2,15 @@ import sqlite3
 import os
 import re
 import sys
+import datetime
 
-BMDNS_DIR = '/usr/local/share/bmdns/'
-DB_PATH = '/usr/local/share/bmdns/dbase/bmdns.db'
-LOG_DIR = '/usr/local/share/bmdns/'
+if os.sys.platform == 'linux':
+    LOG_DIR = '/var/log/bmdns/'
+    DB_PATH = '/var/log/bmdns/dbase/bmdns.db'
+
+elif os.sys.platform == 'win32':
+    LOG_DIR = os.path.join(os.getenv('PROGRAMFILES'), 'bmdns', 'log')
+    DB_PATH = os.path.join(LOG_DIR, 'dbase', 'bmdns.db')
 
 class ANSWER_TYPE:
     ROOT_SERVER = 1
@@ -14,8 +19,9 @@ class ANSWER_TYPE:
     REFUSAL = 4
 
 class Request:
-    def __init__(self, id, requestant, target):
+    def __init__(self, id, identifier, requestant, target):
         self.id = id
+        self.identifier = identifier
         self.requestant = requestant
         self.requestantIp = self.requestant.split(':')[0]
         self.requestantPort = self.requestant.split(':')[1]
@@ -26,11 +32,11 @@ class Request:
         return f'Request({self.id}@{self.requestant} ; target: {self.target} ; answer: {self.answerType})'
 
 def createDbase():
-    if not os.path.exists(BMDNS_DIR):
+    if not os.path.exists(LOG_DIR):
         print('Error: bmdns appears to not be installed')
         sys.exit(1)
 
-    dbaseDir = os.path.join(BMDNS_DIR, 'dbase')
+    dbaseDir = os.path.join(LOG_DIR, 'dbase')
     if not os.path.exists(dbaseDir):
         os.mkdir(dbaseDir)
 
@@ -46,7 +52,7 @@ def createDbase():
     cursor.execute("insert into answer_type(description) values ('refusal')")
 
     cursor.execute("create table inspected_files (file text primary key)")
-    cursor.execute("create table bmdns_queries (id integer primary key, ip text, target text, answer int)")
+    cursor.execute("create table bmdns_queries (id text primary key, ip text, target text, answer int)")
 
     connection.commit()
     cursor.close()
@@ -69,13 +75,19 @@ def inspectLogFile(filePath):
         requestId = chunks[1].strip()
         requestant = re.search(r'(([0-9]{1,3}\.){3}[0-9]{1,3}:\d{1,5})', chunks[2]).group(1)
 
-        identifier = f'{requestId}@{requestant}'
+        dateAndTime = chunks[0].split(' ')
+        requestDate = dateAndTime[1]
+        requestTime = dateAndTime[2]
+
+        timestamp = int(datetime.datetime(*(int(chunk) for chunk in requestDate.split('/')), *(int(chunk) for chunk in requestTime.split(':'))).timestamp())
+        internalIdentifier = f'{requestId}@{requestant}'
+        fullIdentifier = f'{timestamp}:{requestId}@{requestant}'
 
         if line.startswith('[!]'):
             request = chunks[2].split(' ')
             target = request[-1]
 
-            unterminated[identifier] = Request(requestId, requestant, target)
+            unterminated[internalIdentifier] = Request(requestId, fullIdentifier, requestant, target)
 
         elif line.startswith('[*]'):
             text = chunks[2]
@@ -89,25 +101,35 @@ def inspectLogFile(filePath):
             elif 'giving cached' in text:
                 answerType = ANSWER_TYPE.CACHED
 
-            logRequest = unterminated.pop(identifier)
-            logRequest.answerType = answerType
+            try:
+                logRequest = unterminated.pop(internalIdentifier)
+                logRequest.answerType = answerType
+                logs.append(logRequest)
+            except:
+                pass
 
-            logs.append(logRequest)
 
         elif line.startswith('[x]'):
-            logRequest = unterminated.pop(identifier)
-            logRequest.answerType = ANSWER_TYPE.REFUSAL
+            try:
+                logRequest = unterminated.pop(internalIdentifier)
+                logRequest.answerType = ANSWER_TYPE.REFUSAL
 
-            logs.append(logRequest)
-
+                logs.append(logRequest)
+            except:
+                pass
     return logs
 
-def updateDbase():
+def instanceDbaseConnection():
+    connection = sqlite3.connect(DB_PATH)
+    dbase = connection.cursor()
+
+    return connection, dbase
+
+def updateDbase(verbose=False):
     if not os.path.exists(DB_PATH):
         createDbase()
 
-    connection = sqlite3.connect(DB_PATH)
-    dbase = connection.cursor()
+    connection, dbase = instanceDbaseConnection()
 
     dbase.execute("select distinct file from inspected_files")
     inspectedFiles = set(row[0] for row in dbase.fetchall())
@@ -119,16 +141,30 @@ def updateDbase():
         if not re.fullmatch(r'^bmdns_\d{4}-\d{1,2}-\d{1,2}_\d{1,2}-\d{1,2}-\d{1,2}\.log$', file) and file != 'bmdns.log':
             continue
 
-        fileLog = inspectLogFile(os.path.join(LOG_DIR, file))
+        filePath = os.path.join(LOG_DIR, file)
+        if verbose:
+            print(f'Inspecting: {filePath}')
+
+        fileLog = inspectLogFile(filePath)
+
         if file != 'bmdns.log':
             dbase.execute(f"insert into inspected_files(file) values ('{file}')")
 
         for entry in fileLog:
+            id  = entry.identifier
             ip = entry.requestantIp
             target = entry.target
 
             answer = entry.answerType
-            dbase.execute(f"insert into bmdns_queries(ip, target, answer) values ('{ip}', '{target}', {answer});")
+            try:
+                dbase.execute(f"insert into bmdns_queries(id, ip, target, answer) values ('{id}', '{ip}', '{target}', {answer});")
+
+            except:
+                dbase.close()
+                connection.commit()
+                connection.close()
+
+                connection, dbase = instanceDbaseConnection()
 
     connection.commit()
     dbase.close()
@@ -168,6 +204,7 @@ def queryTopRequestants(limit):
     rows = runQuery(query, limit)
 
     checkRows(rows)
+    rows.insert(0, ('IP', 'Requests'))
     printFmtRows(rows if limit == -1 else rows[:limit])
 
 def queryTopTargets(limit):
@@ -175,14 +212,15 @@ def queryTopTargets(limit):
     rows = runQuery(query, limit)
 
     checkRows(rows)
+    rows.insert(0, ('Target', 'Count'))
     printFmtRows(rows if limit == -1 else rows[:limit])
 
 def fullTable(limit):
-    query = "select bq.ip, bq.target, at.description FROM bmdns_queries as bq join answer_type as at on bq.answer = at.id"
+    query = "select bq.id, bq.ip, bq.target, at.description FROM bmdns_queries as bq join answer_type as at on bq.answer = at.id order by bq.id"
     rows = runQuery(query, limit)
 
     checkRows(rows)
-    rows.insert(0, ('Sender', 'Target', 'Answer'))
+    rows.insert(0, ('ID', 'Sender', 'Target', 'Answer'))
     printFmtRows(rows)
 
 def requestantQueries(ip, limit):

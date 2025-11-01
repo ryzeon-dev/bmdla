@@ -3,9 +3,9 @@ import sqlite3
 import sys
 
 from argparser import ArgParse
-from core import fullTable, queryTopRequestants, queryTopTargets, requestantQueries, updateDbase, runUserQuery
+from core import fullTable, queryTopRequestants, queryTopTargets, requestantQueries, updateDbase, runUserQuery, DB_PATH
 
-VERSION = '1.1.0'
+VERSION = '2.0.0'
 
 if __name__ == '__main__':
     args = ArgParse()
@@ -24,6 +24,7 @@ if __name__ == '__main__':
         print('    -td --top-domains               Show top domains')
         print('    -tr --top-requestants           Show top requestants')
         print('    -U  --update                    Update database with latest log')
+        print('    -v  --verbose                   Verbose output while updating')
         print('    -V  --version                   Show version and exit')
         sys.exit(0)
 
@@ -43,11 +44,15 @@ if __name__ == '__main__':
             sys.exit(1)
 
         try:
-            updateDbase()
+            updateDbase(args.verbose)
 
         except sqlite3.OperationalError:
             print('Error: database update requires root privilegies')
             sys.exit(1)
+
+    if not os.path.exists(DB_PATH):
+        print('Database does not exist. Run with `-U`')
+        sys.exit(1)
 
     if args.topRequestants:
         queryTopRequestants(args.limit)
